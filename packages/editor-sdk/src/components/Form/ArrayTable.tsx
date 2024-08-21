@@ -1,11 +1,11 @@
 import React, { useMemo, useCallback } from 'react';
 import { css } from '@emotion/css';
-import { IconButton, Table, Thead, Tbody, Tr, Th, Td } from '@chakra-ui/react';
-import { AddIcon } from '@chakra-ui/icons';
+import { IconButton, Table, Thead, Tbody, Tr, Th, Td, Tooltip } from '@chakra-ui/react';
+import { AddIcon, SettingsIcon } from '@chakra-ui/icons';
 import { generateDefaultValueFromSpec, isJSONSchema } from '@sunmao-ui/shared';
 import { JSONSchema7 } from 'json-schema';
 import { ArrayButtonGroup } from './ArrayButtonGroup';
-import { PopoverWidget } from '../Widgets/PopoverWidget';
+import { PopoverWidget, PopoverWidgetType } from '../Widgets/PopoverWidget';
 import { mergeWidgetOptionsIntoSpec } from '../../utils/widget';
 import { WidgetProps } from '../../types/widget';
 import { get } from 'lodash';
@@ -35,6 +35,9 @@ const TableRowStyle = css`
 
 type ArrayTableProps = WidgetProps<'core/v1/array'> & {
   itemSpec: JSONSchema7;
+  // These 2 properties are for BreadcrumbWidget
+  disablePopover?: boolean;
+  onClickSettings?: (i: number) => void;
 };
 type RowProps = ArrayTableProps & {
   itemValue: any;
@@ -44,9 +47,25 @@ type RowProps = ArrayTableProps & {
 const DEFAULT_KEYS = ['index'];
 
 const TableRow: React.FC<RowProps> = props => {
-  const { value, itemSpec, spec, level, path, children, itemValue, itemIndex, onChange } =
-    props;
-  const { expressionOptions, displayedKeys = [] } = spec.widgetOptions || {};
+  const {
+    value,
+    itemSpec,
+    spec,
+    level,
+    path,
+    children,
+    itemValue,
+    itemIndex,
+    onChange,
+    disablePopover,
+    onClickSettings,
+  } = props;
+  const {
+    expressionOptions,
+    displayedKeys = [],
+    appendToBody,
+    appendToParent,
+  } = spec.widgetOptions || {};
   const keys = displayedKeys.length ? displayedKeys : DEFAULT_KEYS;
   const mergedSpec = useMemo(
     () =>
@@ -57,9 +76,11 @@ const TableRow: React.FC<RowProps> = props => {
         },
         {
           expressionOptions,
+          appendToBody,
+          appendToParent,
         }
       ),
-    [itemSpec, expressionOptions]
+    [itemSpec, expressionOptions, appendToBody, appendToParent]
   );
   const nextPath = useMemo(() => path.concat(String(itemIndex)), [path, itemIndex]);
   const onPopoverWidgetChange = useCallback(
@@ -71,20 +92,31 @@ const TableRow: React.FC<RowProps> = props => {
     [itemIndex, onChange, value]
   );
 
+  const popoverWidget = (
+    <PopoverWidget
+      {...props}
+      value={itemValue}
+      spec={mergedSpec as WidgetProps<PopoverWidgetType>}
+      path={nextPath}
+      level={level + 1}
+      onChange={onPopoverWidgetChange}
+    >
+      {typeof children === 'function' ? children(props, itemValue, itemIndex) : null}
+    </PopoverWidget>
+  );
+
+  const settingsButton = (
+    <IconButton
+      size="xs"
+      variant="ghost"
+      aria-label="Setting"
+      icon={<SettingsIcon />}
+      onClick={() => onClickSettings?.(itemIndex)}
+    />
+  );
   return (
     <Tr className={TableRowStyle}>
-      <Td key="setting">
-        <PopoverWidget
-          {...props}
-          value={itemValue}
-          spec={mergedSpec}
-          path={nextPath}
-          level={level + 1}
-          onChange={onPopoverWidgetChange}
-        >
-          {typeof children === 'function' ? children(props, itemValue, itemIndex) : null}
-        </PopoverWidget>
-      </Td>
+      <Td key="setting">{disablePopover ? settingsButton : popoverWidget}</Td>
       {keys.map((key: string) => {
         const keyValue = get(itemValue, key);
         const propertyValue = key === 'index' ? keyValue ?? itemIndex : keyValue;
@@ -93,11 +125,15 @@ const TableRow: React.FC<RowProps> = props => {
             ? propertyValue
             : JSON.stringify(propertyValue);
 
-        return (
-          <Td key={key} title={propertyValueString}>
-            {propertyValueString}
-          </Td>
-        );
+        let ele = <span>{propertyValueString}</span>;
+        if (propertyValueString.length > 10) {
+          ele = (
+            <Tooltip label={propertyValueString} placement="top">
+              {ele}
+            </Tooltip>
+          );
+        }
+        return <Td key={key}>{ele}</Td>;
       })}
       <Td key="button">
         <ArrayButtonGroup index={itemIndex} value={value} onChange={onChange} />
@@ -107,7 +143,7 @@ const TableRow: React.FC<RowProps> = props => {
 };
 
 export const ArrayTable: React.FC<ArrayTableProps> = props => {
-  const { value, itemSpec, spec, onChange } = props;
+  const { value, itemSpec, spec, onChange, disablePopover, onClickSettings } = props;
   const { displayedKeys = [] } = spec.widgetOptions || {};
   const keys = displayedKeys.length ? displayedKeys : ['index'];
 
@@ -144,6 +180,8 @@ export const ArrayTable: React.FC<ArrayTableProps> = props => {
                 key={itemIndex}
                 itemValue={itemValue}
                 itemIndex={itemIndex}
+                disablePopover={disablePopover}
+                onClickSettings={onClickSettings}
               />
             ))
           ) : (

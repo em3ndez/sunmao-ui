@@ -2,6 +2,7 @@ import { Type } from '@sinclair/typebox';
 import _Text, { TextPropertySpec } from '../_internal/Text';
 import { implementRuntimeComponent } from '../../utils/buildKit';
 import { CORE_VERSION, CoreComponentName } from '@sunmao-ui/shared';
+import React from 'react';
 
 const StateSpec = Type.Object({
   value: Type.String(),
@@ -26,6 +27,7 @@ export default implementRuntimeComponent({
     annotations: {
       category: 'Display',
     },
+    deprecated: true,
   },
   spec: {
     properties: PropsSpec,

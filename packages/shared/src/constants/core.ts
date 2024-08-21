@@ -1,4 +1,5 @@
 export const CORE_VERSION = 'core/v1';
+export const CORE_VERSION_V2 = 'core/v2';
 export declare const STYLE_VERSION = 'style/v1';
 // core components
 export enum CoreComponentName {
@@ -6,6 +7,7 @@ export enum CoreComponentName {
   ModuleContainer = 'moduleContainer',
   Text = 'text',
   Iframe = 'iframe',
+  Watcher = 'watcher',
 }
 // core traits
 export enum CoreTraitName {
@@ -37,6 +39,7 @@ export enum CoreWidgetName {
   Spec = 'spec',
   StringField = 'string',
   UnsupportedField = 'unsupported',
+  Breadcrumb = 'breadcrumb',
 }
 
 export enum StyleWidgetName {
@@ -45,3 +48,11 @@ export enum StyleWidgetName {
   Font = 'font',
   Space = 'space',
 }
+
+export enum MountEvent {
+  mount = '$onMount',
+  unmount = '$onUnmount',
+  update = '$onUpdate',
+}
+
+export const MountEvents = [MountEvent.mount, MountEvent.unmount, MountEvent.update];

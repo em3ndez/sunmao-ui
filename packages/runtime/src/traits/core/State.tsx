@@ -7,6 +7,7 @@ type KeyValue = { key: string; value: unknown };
 export const StateTraitPropertiesSpec = Type.Object({
   key: Type.String({
     title: 'Key',
+    default: 'value',
   }),
   initialValue: Type.Any({
     title: 'Initial Value',
@@ -18,6 +19,7 @@ export default implementRuntimeTrait({
   metadata: {
     name: CoreTraitName.State,
     description: 'add state to component',
+    isDataSource: true,
   },
   spec: {
     properties: StateTraitPropertiesSpec,

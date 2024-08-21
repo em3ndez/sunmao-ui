@@ -1,21 +1,30 @@
 import mitt from 'mitt';
 export type ApiService = ReturnType<typeof initApiService>;
 
+/**
+ * @description: trigger component's method
+ * @example: { componentId: "btn1", name: "click" }
+ */
+export type UIMethodPayload = {
+  componentId: string;
+  name: string;
+  triggerId: string;
+  eventType: string;
+  parameters?: any;
+};
+
+export type ModuleEventPayload = {
+  fromId: string;
+  eventType: string;
+};
 export function initApiService() {
   const emitter = mitt<{
+    uiMethod: UIMethodPayload;
+    moduleEvent: ModuleEventPayload;
     /**
-     * @description: trigger component's method
-     * @example: { componentId: "btn1", name: "click" }
+     * @description: record merge state info for debug
      */
-    uiMethod: {
-      componentId: string;
-      name: string;
-      parameters?: any;
-    };
-    moduleEvent: {
-      fromId: string;
-      eventType: string;
-    };
+    mergeState: Record<string, any>;
   }>();
   const apiService = {
     on: emitter.on,

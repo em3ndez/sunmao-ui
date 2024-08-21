@@ -16,3 +16,8 @@ typings
 
 # jest test coverage
 coverage
+
+stats.html
+
+# vscode extensions
+.history

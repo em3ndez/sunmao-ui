@@ -16,10 +16,10 @@ dayjs.extend(LocalizedFormat);
 dayjs.locale('zh-cn');
 
 type EvalOptions = {
-  evalListItem?: boolean;
   scopeObject?: Record<string, any>;
   overrideScope?: boolean;
-  fallbackWhenError?: (exp: string) => any;
+  overrideSlot?: boolean;
+  fallbackWhenError?: (exp: string, err: Error) => any;
   // when ignoreEvalError is true, the eval process will continue after error happens in nests expression.
   ignoreEvalError?: boolean;
   slotKey?: string;
@@ -44,6 +44,18 @@ export type StateManagerInterface = InstanceType<typeof StateManager>;
 export class StateManager {
   store = reactive<Record<string, any>>({});
   slotStore = reactive<Record<string, any>>({});
+
+  /**
+   * In `initStateAndMethod`, we setup all components' state with a
+   * default value.
+   *
+   * If some components were unmounted later, the `UnmountImplWrapper`
+   * will teardown the state.
+   *
+   * So we provide this flag set for the `UnmountImplWrapper`, let
+   * it know whether the component's state is setup by the init process.
+   */
+  initSet = new Set<string>();
 
   dependencies: Record<string, unknown>;
 
@@ -92,11 +104,11 @@ export class StateManager {
   };
 
   private _maskedEval(raw: string, options: EvalOptions = {}): unknown | ExpressionError {
-    const { evalListItem = false, fallbackWhenError } = options;
+    const { fallbackWhenError } = options;
     let result: unknown[] = [];
 
     try {
-      const expChunk = parseExpression(raw, evalListItem);
+      const expChunk = parseExpression(raw);
 
       if (typeof expChunk === 'string') {
         return expChunk;
@@ -117,7 +129,9 @@ export class StateManager {
           consoleError(ConsoleType.Expression, raw, expressionError.message);
         }
 
-        return fallbackWhenError ? fallbackWhenError(raw) : expressionError;
+        return fallbackWhenError
+          ? fallbackWhenError(raw, expressionError)
+          : expressionError;
       }
       return undefined;
     }
@@ -158,6 +172,7 @@ export class StateManager {
     options: EvalOptions = {}
   ): EvaledResult<T> {
     const store = this.slotStore;
+
     const redirector = new Proxy(
       {},
       {
@@ -169,7 +184,7 @@ export class StateManager {
 
     options.scopeObject = {
       ...options.scopeObject,
-      $slot: redirector,
+      ...(!options.overrideSlot && { $slot: redirector }),
     };
     // just eval
     if (typeof value !== 'string') {
@@ -196,7 +211,6 @@ export class StateManager {
       ? unknown
       : PropsAfterEvaled<Exclude<T, string>>;
 
-    const store = this.slotStore;
     const redirector = new Proxy(
       {},
       {
@@ -205,9 +219,11 @@ export class StateManager {
         },
       }
     );
+
+    const store = this.slotStore;
     options.scopeObject = {
       ...options.scopeObject,
-      $slot: redirector,
+      ...(!options.overrideSlot && { $slot: redirector }),
     };
     // watch change
     if (value && typeof value === 'object') {

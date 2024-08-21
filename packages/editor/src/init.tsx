@@ -12,6 +12,7 @@ import {
   extendTheme,
   withDefaultSize,
   withDefaultVariant,
+  theme,
 } from '@chakra-ui/react';
 import { initEventBus } from './services/eventBus';
 import { EditorStore } from './services/EditorStore';
@@ -26,6 +27,15 @@ type SunmaoUIEditorProps = {
   storageHandler?: StorageHandler;
   defaultApplication?: Application;
   defaultModules?: Module[];
+};
+
+const zIndices = {
+  zIndices: {
+    ...theme.zIndices,
+    // smaller than the default value of zIndex for chakra modal (1400)
+    editorMask: 1399,
+    sideMenuIndex: 2,
+  },
 };
 
 export function initSunmaoUIEditor(props: SunmaoUIEditorProps = {}) {
@@ -45,9 +55,9 @@ export function initSunmaoUIEditor(props: SunmaoUIEditorProps = {}) {
     withDefaultVariant({
       variant: 'filled',
       components: ['Input', 'NumberInput', 'Textarea', 'Select'],
-    })
+    }),
+    zIndices
   );
-
   const didMount = () => {
     eventBus.send('HTMLElementsUpdated');
     if (props.runtimeProps?.hooks?.didMount) props.runtimeProps.hooks.didMount();
@@ -82,20 +92,11 @@ export function initSunmaoUIEditor(props: SunmaoUIEditorProps = {}) {
     appStorage.app.spec.components
   );
   const widgetManager = new WidgetManager();
-  const editorStore = new EditorStore(
-    eventBus,
-    registry,
-    stateManager,
-    appStorage,
-    appModelManager
-  );
+  const editorStore = new EditorStore(eventBus, registry, stateManager, appStorage);
   editorStore.eleMap = ui.eleMap;
 
   const services = {
-    App,
-    registry: ui.registry,
-    apiService: ui.apiService,
-    stateManager,
+    ...ui,
     appModelManager,
     widgetManager,
     eventBus,
@@ -145,5 +146,6 @@ export function initSunmaoUIEditor(props: SunmaoUIEditorProps = {}) {
   return {
     Editor,
     registry,
+    services,
   };
 }

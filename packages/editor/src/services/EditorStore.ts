@@ -1,23 +1,13 @@
 import { action, makeAutoObservable, observable, reaction, toJS } from 'mobx';
 import { ComponentSchema, createModule } from '@sunmao-ui/core';
 import { RegistryInterface, StateManagerInterface } from '@sunmao-ui/runtime';
+import { isEqual } from 'lodash';
 
 import { EventBusType } from './eventBus';
 import { AppStorage } from './AppStorage';
-import { SchemaValidator, ValidateErrorResult } from '../validator';
-import {
-  DataSourceType,
-  DATASOURCE_NAME_MAP,
-  DATASOURCE_TRAIT_TYPE_MAP,
-} from '../constants/dataSource';
-import { genOperation } from '../operations';
 import { ExplorerMenuTabs, ToolMenuTabs } from '../constants/enum';
 
-import { CORE_VERSION, CoreComponentName } from '@sunmao-ui/shared';
-import { isEqual } from 'lodash';
-import { resolveApplicationComponents } from '../utils/resolveApplicationComponents';
-import { AppModelManager } from '../operations/AppModelManager';
-import type { Metadata } from '@sunmao-ui/core/lib/metadata';
+import type { Metadata } from '@sunmao-ui/core';
 
 type EditingTarget = {
   kind: 'app' | 'module';
@@ -36,11 +26,12 @@ export class EditorStore {
   hoverComponentId = '';
   explorerMenuTab = ExplorerMenuTabs.UI_TREE;
   toolMenuTab = ToolMenuTabs.INSERT;
-  validateResult: ValidateErrorResult[] = [];
+  viewStateComponentId = '';
   // current editor editing target(app or module)
   currentEditingTarget: EditingTarget = {
     kind: 'app',
     version: '',
+
     name: '',
   };
 
@@ -51,25 +42,21 @@ export class EditorStore {
   // when componentsChange event is triggered, currentComponentsVersion++
   currentComponentsVersion = 0;
   lastSavedComponentsVersion = 0;
-  schemaValidator: SchemaValidator;
 
-  // data source
-  activeDataSourceId: string | null = null;
+  private isDataSourceTypeCache: Record<string, boolean> = {};
 
   constructor(
     private eventBus: EventBusType,
     private registry: RegistryInterface,
     private stateManager: StateManagerInterface,
-    public appStorage: AppStorage,
-    private appModelManager: AppModelManager
+    public appStorage: AppStorage
   ) {
     this.globalDependencies = this.stateManager.dependencies;
-    const dependencyNames = Object.keys(this.globalDependencies);
-    this.schemaValidator = new SchemaValidator(this.registry, dependencyNames);
     makeAutoObservable(this, {
       eleMap: false,
       components: observable.shallow,
       setComponents: action,
+      setHoverComponentId: action,
       setDragOverComponentId: action,
     });
 
@@ -94,13 +81,18 @@ export class EditorStore {
         if (target.name) {
           this.setCurrentComponentsVersion(0);
           this.setLastSavedComponentsVersion(0);
+          // clear currrent components and store
           this.clearSunmaoGlobalState();
           this.eventBus.send('stateRefresh');
-          this.eventBus.send('componentsRefresh', this.originComponents);
-
-          this.setComponents(this.originComponents);
-          this.setSelectedComponentId(this.originComponents[0]?.id || '');
-          this.setModuleDependencies(target.metadata?.exampleProperties);
+          this.eventBus.send('componentsRefresh', []);
+          this.setComponents([]);
+          setTimeout(() => {
+            // set new components
+            this.setSelectedComponentId(this.originComponents[0]?.id || '');
+            this.setModuleDependencies(target.metadata?.exampleProperties);
+            this.eventBus.send('componentsRefresh', this.originComponents);
+            this.setComponents(this.originComponents);
+          }, 0);
         }
       }
     );
@@ -110,27 +102,23 @@ export class EditorStore {
       () => {
         if (this.selectedComponentId) {
           this.setToolMenuTab(ToolMenuTabs.INSPECT);
-          this.setActiveDataSourceId(null);
         }
       }
     );
 
     reaction(
-      () => this.components,
+      () => this.rawModules,
       () => {
-        this.setValidateResult(
-          this.schemaValidator.validate(this.appModelManager.appModel)
-        );
+        // Remove old modules and re-register all modules,
+        this.registry.unregisterAllModules();
+        this.rawModules.forEach(m => {
+          const modules = createModule(m);
+          this.registry.registerModule(modules, true);
+        });
       }
     );
 
     this.updateCurrentEditingTarget('app', this.app.version, this.app.metadata.name);
-  }
-
-  get resolvedComponents() {
-    return resolveApplicationComponents(
-      this.components.filter(c => c.type !== `${CORE_VERSION}/${CoreComponentName.Dummy}`)
-    );
   }
 
   get app() {
@@ -151,6 +139,11 @@ export class EditorStore {
 
   get selectedComponentId() {
     return this._selectedComponentId;
+  }
+
+  get selectedComponentIsDataSource() {
+    if (!this.selectedComponent) return false;
+    return !!this.isDataSourceTypeCache[this.selectedComponent.type];
   }
 
   get dragOverComponentId() {
@@ -178,47 +171,32 @@ export class EditorStore {
     }
   }
 
-  get dataSources(): Record<string, ComponentSchema[]> {
-    const dataSources: Record<string, ComponentSchema[]> = {};
-
-    this.components.forEach(component => {
-      if (component.type === `${CORE_VERSION}/${CoreComponentName.Dummy}`) {
-        component.traits.forEach(trait => {
-          Object.entries(DATASOURCE_TRAIT_TYPE_MAP).forEach(
-            ([dataSourceType, traitType]) => {
-              if (trait.type === traitType) {
-                dataSources[dataSourceType] = (dataSources[dataSourceType] || []).concat(
-                  component
-                );
-              }
-            }
-          );
-        });
+  get uiComponents(): ComponentSchema[] {
+    return this.components.filter(component => {
+      if (this.isDataSourceTypeCache[component.type]) return false;
+      const spec = this.registry.getComponentByType(component.type);
+      if (spec.metadata.isDataSource) {
+        this.isDataSourceTypeCache[component.type] = true;
+        return false;
       }
+      return true;
     });
-
-    return dataSources;
   }
 
-  get activeDataSource(): ComponentSchema | null {
-    return (
-      this.components.find(component => component.id === this.activeDataSourceId) || null
-    );
-  }
-
-  get activeDataSourceType(): DataSourceType | null {
-    for (const trait of this.activeDataSource?.traits || []) {
-      const [dataSourceType] =
-        Object.entries(DATASOURCE_TRAIT_TYPE_MAP).find(
-          ([, traitType]) => trait.type === traitType
-        ) || [];
-
-      if (dataSourceType) {
-        return dataSourceType as DataSourceType;
+  get dataSources(): ComponentSchema[] {
+    return this.components.filter(component => {
+      if (this.isDataSourceTypeCache[component.type]) return true;
+      const spec = this.registry.getComponentByType(component.type);
+      if (spec.metadata.isDataSource) {
+        this.isDataSourceTypeCache[component.type] = true;
+        return true;
       }
-    }
+      return false;
+    });
+  }
 
-    return null;
+  get dataSourceTypeCache() {
+    return this.isDataSourceTypeCache;
   }
 
   clearSunmaoGlobalState() {
@@ -283,84 +261,12 @@ export class EditorStore {
     this.lastSavedComponentsVersion = val;
   };
 
-  setActiveDataSourceId = (dataSourceId: string | null) => {
-    this.activeDataSourceId = dataSourceId;
-  };
-
-  setValidateResult = (validateResult: ValidateErrorResult[]) => {
-    this.validateResult = validateResult;
-  };
-
-  createDataSource = (
-    type: DataSourceType,
-    defaultProperties: Record<string, any> = {}
-  ) => {
-    const getCount = (
-      dataSources: ComponentSchema[] = [],
-      dataSourceName = ''
-    ): number => {
-      let count = dataSources.length;
-      let id = `${dataSourceName}${count}`;
-      const ids = dataSources.map(({ id }) => id);
-
-      while (ids.includes(id)) {
-        id = `${dataSourceName}${++count}`;
-      }
-
-      return count;
-    };
-
-    const id = `${DATASOURCE_NAME_MAP[type]}${getCount(
-      this.dataSources[type],
-      DATASOURCE_NAME_MAP[type]
-    )}`;
-
-    this.eventBus.send(
-      'operation',
-      genOperation(this.registry, 'createDataSource', {
-        id,
-        type,
-        defaultProperties,
-      })
-    );
-
-    const component = this.components.find(({ id: componentId }) => id === componentId);
-
-    this.setActiveDataSourceId(component!.id);
-
-    if (type === DataSourceType.STATE || type === DataSourceType.LOCALSTORAGE) {
-      this.setToolMenuTab(ToolMenuTabs.INSPECT);
-    }
-  };
-
-  removeDataSource = (dataSource: ComponentSchema) => {
-    this.eventBus.send(
-      'operation',
-      genOperation(this.registry, 'removeComponent', {
-        componentId: dataSource.id,
-      })
-    );
-    if (this.activeDataSource?.id === dataSource.id) {
-      this.setActiveDataSourceId(null);
-    }
-  };
-
-  changeDataSourceName = (dataSource: ComponentSchema, name: string) => {
-    this.eventBus.send(
-      'operation',
-      genOperation(this.registry, 'modifyComponentId', {
-        componentId: dataSource.id,
-        newId: name,
-      })
-    );
-
-    const component = this.components.find(({ id: componentId }) => componentId === name);
-
-    this.setActiveDataSourceId(component!.id);
-  };
-
   setExplorerMenuTab = (val: ExplorerMenuTabs) => {
     this.explorerMenuTab = val;
+  };
+
+  setViewStateComponentId = (val: string) => {
+    this.viewStateComponentId = val;
   };
 
   setToolMenuTab = (val: ToolMenuTabs) => {

@@ -7,14 +7,12 @@ import { flattenDeep, isArray, isObject } from 'lodash';
 import { isExpression } from '../validator/utils';
 import {
   ComponentId,
-  IAppModel,
   IComponentModel,
   ITraitModel,
   IFieldModel,
   ModuleId,
   RefInfo,
   ASTNode,
-  AppModelEventType,
 } from './IAppModel';
 import escodegen from 'escodegen';
 import { JSONSchema7 } from 'json-schema';
@@ -38,13 +36,11 @@ export class FieldModel implements IFieldModel {
 
   constructor(
     value: unknown,
-    public spec?: JSONSchema7 & CustomOptions,
-    private appModel?: IAppModel,
     private componentModel?: IComponentModel,
+    public spec?: JSONSchema7 & CustomOptions,
     private traitModel?: ITraitModel
   ) {
     this.update(value);
-    this.appModel?.emitter.on('idChange', this.onReferenceIdChange.bind(this));
   }
 
   get rawValue() {
@@ -81,11 +77,10 @@ export class FieldModel implements IFieldModel {
           } else {
             newValue = new FieldModel(
               value[key],
+              this.componentModel,
               (this.spec?.properties?.[key] || this.spec?.items) as
                 | (JSONSchema7 & CustomOptions)
                 | undefined,
-              this.appModel,
-              this.componentModel,
               this.traitModel
             );
           }
@@ -124,6 +119,7 @@ export class FieldModel implements IFieldModel {
 
   // path is like the param of lodash.get, eg: 'foo.bar.0.value'
   getPropertyByPath(path: string): FieldModel | undefined {
+    if (!path) return undefined;
     const arr = path.split('.');
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let res: FieldModel | undefined = this;
@@ -254,7 +250,7 @@ export class FieldModel implements IFieldModel {
     return path.slice(1).join('.');
   }
 
-  private onReferenceIdChange({ oldId, newId }: AppModelEventType['idChange']) {
+  changeReferenceId(oldId: ComponentId, newId: ComponentId) {
     if (!this.componentModel) {
       return;
     }

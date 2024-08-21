@@ -6,7 +6,7 @@ import { FALLBACK_METADATA, getComponentProps } from '../sunmao-helper';
 import { NumberInputPropsSpec as BaseNumberInputPropsSpec } from '../generated/types/NumberInput';
 import { useEffect, useRef } from 'react';
 import { RefInputType } from '@arco-design/web-react/es/Input/interface';
-import { useStateValue } from 'src/hooks/useStateValue';
+import { useStateValue } from '../hooks/useStateValue';
 
 const InputPropsSpec = Type.Object({
   ...BaseNumberInputPropsSpec,
@@ -59,7 +59,9 @@ export const NumberInput = implementRuntimeComponent({
   const [value, setValue] = useStateValue(
     defaultValue,
     mergeState,
-    updateWhenDefaultValueChanges
+    updateWhenDefaultValueChanges,
+    undefined,
+    callbackMap?.onChange
   );
   const ref = useRef<RefInputType | null>(null);
 

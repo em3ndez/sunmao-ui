@@ -1,9 +1,8 @@
 import React from 'react';
 import { observer } from 'mobx-react-lite';
 import { Accordion, Input, Text, VStack } from '@chakra-ui/react';
-import { SpecWidget } from '@sunmao-ui/editor-sdk';
+import { ComponentFormElementId, SpecWidget } from '@sunmao-ui/editor-sdk';
 import { parseType } from '@sunmao-ui/core';
-import { generateDefaultValueFromSpec } from '@sunmao-ui/shared';
 import { css } from '@emotion/css';
 
 import { EventTraitForm } from './EventTraitForm';
@@ -13,6 +12,7 @@ import ErrorBoundary from '../ErrorBoundary';
 import { StyleTraitForm } from './StyleTraitForm';
 import { EditorServices } from '../../types';
 import { FormSection } from './FormSection';
+import { TagForm } from './TagForm';
 
 // avoid the expression tip would be covered
 const ComponentFormStyle = css`
@@ -28,7 +28,8 @@ type Props = {
 export const ComponentForm: React.FC<Props> = observer(props => {
   const { services } = props;
   const { editorStore, registry, eventBus } = services;
-  const { selectedComponent, selectedComponentId } = editorStore;
+  const { selectedComponent, selectedComponentId, selectedComponentIsDataSource } =
+    editorStore;
   if (!selectedComponentId) {
     return (
       <Text p={2} fontSize="md">
@@ -46,10 +47,7 @@ export const ComponentForm: React.FC<Props> = observer(props => {
   }
   const { version, name } = parseType(selectedComponent.type);
   const cImpl = registry.getComponent(version, name);
-  const properties = Object.assign(
-    generateDefaultValueFromSpec(cImpl.spec.properties)!,
-    selectedComponent.properties
-  );
+  const properties = selectedComponent.properties;
 
   const changeComponentId = (selectedComponentId: string, value: string) => {
     eventBus.send(
@@ -99,7 +97,7 @@ export const ComponentForm: React.FC<Props> = observer(props => {
             onChange={newFormData => {
               eventBus.send(
                 'operation',
-                genOperation(registry, 'modifyComponentProperty', {
+                genOperation(registry, 'modifyComponentProperties', {
                   componentId: selectedComponentId,
                   properties: newFormData,
                 })
@@ -109,6 +107,7 @@ export const ComponentForm: React.FC<Props> = observer(props => {
           />
         </VStack>
       ),
+      hide: Object.keys(cImpl.spec.properties.properties).length === 0,
     },
     {
       title: 'Events',
@@ -123,16 +122,23 @@ export const ComponentForm: React.FC<Props> = observer(props => {
           services={services}
         />
       ),
+      hide: selectedComponentIsDataSource,
     },
     {
       title: 'Traits',
       node: <GeneralTraitFormList component={selectedComponent} services={services} />,
+    },
+    {
+      title: 'Tags',
+      node: <TagForm services={services} />,
     },
   ];
 
   return (
     <ErrorBoundary>
       <Accordion
+        id={ComponentFormElementId}
+        reduceMotion
         className={ComponentFormStyle}
         defaultIndex={sections.map((_, i) => i)}
         background="gray.50"
@@ -140,15 +146,18 @@ export const ComponentForm: React.FC<Props> = observer(props => {
         allowMultiple
         onKeyDown={onKeyDown}
       >
-        {sections.map((section, i) => (
-          <FormSection
-            style={{ position: 'relative', zIndex: sections.length - i }}
-            title={section.title}
-            key={`${section.title}-${selectedComponentId}`}
-          >
-            {section.node}
-          </FormSection>
-        ))}
+        {sections.map((section, i) => {
+          if (section.hide) return undefined;
+          return (
+            <FormSection
+              style={{ position: 'relative', zIndex: sections.length - i }}
+              title={section.title}
+              key={`${section.title}-${selectedComponentId}`}
+            >
+              {section.node}
+            </FormSection>
+          );
+        })}
       </Accordion>
     </ErrorBoundary>
   );

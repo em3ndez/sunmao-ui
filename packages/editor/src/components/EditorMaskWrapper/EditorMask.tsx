@@ -59,7 +59,9 @@ export const EditorMask: React.FC<Props> = observer((props: Props) => {
   const { hoverMaskPosition, selectedMaskPosition } = manager;
 
   useEffect(() => {
-    manager.init();
+    setTimeout(() => {
+      manager.init();
+    }, 0);
     return () => {
       manager.destroy();
     };
@@ -99,7 +101,7 @@ export const EditorMask: React.FC<Props> = observer((props: Props) => {
       right="0"
       bottom="0"
       pointerEvents="none"
-      zIndex="99999"
+      zIndex="editorMask"
       ref={maskContainerRef}
     >
       {isDraggingNewComponent ? dragMask : hoverMask}

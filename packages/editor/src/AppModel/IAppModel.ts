@@ -62,6 +62,7 @@ export interface IAppModel {
   changeComponentMapId(oldId: ComponentId, newId: ComponentId): void;
   _bindComponentToModel(component: IComponentModel): void;
   traverseTree(cb: (c: IComponentModel) => void): void;
+  traverseAllFields(cb: (f: IFieldModel) => void): void;
 }
 
 export interface IModuleModel {
@@ -97,6 +98,7 @@ export interface IComponentModel {
   _isDirty: boolean;
   _slotTrait: ITraitModel | null;
   toSchema(): ComponentSchema;
+  clone(): IComponentModel;
   updateComponentProperty: (property: string, value: unknown) => void;
   // move component from old parent to new parent(or top level if parent is undefined).
   appendTo: (parent?: IComponentModel, slot?: SlotName) => void;
@@ -109,6 +111,7 @@ export interface IComponentModel {
   removeTrait: (traitId: TraitId) => void;
   updateTraitProperties: (traitId: TraitId, properties: Record<string, unknown>) => void;
   updateSlotTrait: (parent: ComponentId, slot: SlotName) => void;
+  removeSlotTrait: () => void;
   removeChild: (child: IComponentModel) => void;
 }
 
@@ -145,4 +148,5 @@ export interface IFieldModel {
   traverse: (cb: (f: IFieldModel, key: string) => void) => void;
   // ids of used components in the expression
   refComponentInfos: Record<ComponentId | ModuleId, RefInfo>;
+  changeReferenceId(oldId: ComponentId, newId: ComponentId): void;
 }

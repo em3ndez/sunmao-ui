@@ -31,9 +31,8 @@ import { useStateValue } from '../../hooks/useStateValue';
 const TableStateSpec = Type.Object({
   clickedRow: Type.Optional(Type.Any()),
   selectedRows: Type.Array(Type.Any()),
-  selectedRow: Type.Optional(Type.Any()),
   selectedRowKeys: Type.Array(Type.String()),
-  filterRule: Type.Any(),
+  filterRule: Type.Record(Type.String(), Type.Array(Type.String())),
   sortRule: Type.Object({
     field: Type.Optional(Type.String()),
     direction: Type.Optional(Type.String()),
@@ -46,8 +45,6 @@ type SortRule = {
   field?: string;
   direction?: 'ascend' | 'descend';
 };
-
-type FilterRule = Partial<Record<string, string[]>>;
 
 type ColumnProperty = Static<typeof ColumnSpec> & ColumnProps;
 
@@ -188,6 +185,7 @@ export const Table = implementRuntimeComponent({
     checkCrossPage,
     callbackMap,
     app,
+    allComponents,
     mergeState,
     customStyle,
     services,
@@ -218,9 +216,10 @@ export const Table = implementRuntimeComponent({
 
   const rowSelectionType = rowSelectionTypeMap[cProps.rowSelectionType];
   const currentChecked = useRef<(string | number)[]>([]);
+  const currentClickedRow = useRef<(string | number)[] | undefined>(undefined);
 
   const [currentPage, setCurrentPage] = useStateValue<number>(
-    defaultCurrent ?? 1,
+    !defaultCurrent || defaultCurrent < 1 ? 1 : defaultCurrent,
     mergeState,
     updateWhenDefaultPageChanges,
     'currentPage'
@@ -273,24 +272,39 @@ export const Table = implementRuntimeComponent({
     return sortedData;
   }, [pageSize, sortedData, enablePagination, useCustomPagination]);
 
-  // reset state when data changed
+  // reset selectedRows state when data changed
   useEffect(() => {
-    if (!currentPageData.length) {
-      mergeState({
-        selectedRowKeys: [],
-        selectedRows: [],
-        sortRule: {},
-        filterRule: undefined,
-        currentPage: undefined,
-      });
+    // under server-side paging and with checkCrossPage enabled, the previous data should be cached without having to update it
+    if (useCustomPagination && checkCrossPage) {
+      return;
     }
-
+    const selectedRows = currentPageData.filter(d =>
+      currentChecked.current.includes(d[rowKey])
+    );
+    // TODO: Save clickedRow state when rowkey changes, save the UI of clickedRow when turning the page
+    const clickedRow = currentPageData.find(d => d[rowKey] === currentClickedRow.current);
+    if (!clickedRow) currentClickedRow.current = undefined;
     mergeState({
-      selectedRows: currentPageData.filter(d =>
-        currentChecked.current.includes(d[rowKey])
-      ),
+      selectedRowKeys: selectedRows.map(r => r[rowKey]),
+      selectedRows,
+      clickedRow,
     });
-  }, [currentPageData, mergeState, rowKey]);
+  }, [checkCrossPage, currentPageData, mergeState, rowKey, useCustomPagination]);
+
+  // If there is less data to display than the current page, reset to the first page
+  useEffect(() => {
+    if (useCustomPagination) return;
+    if (currentPageData.length <= Number(pageSize) * (currentPage - 1)) {
+      // TODO: Better interaction experience
+      setCurrentPage(1);
+    }
+  }, [
+    currentPage,
+    currentPageData.length,
+    pageSize,
+    setCurrentPage,
+    useCustomPagination,
+  ]);
 
   useEffect(() => {
     setColumns(
@@ -349,15 +363,17 @@ export const Table = implementRuntimeComponent({
 
         newColumn.render = (ceilValue: any, record: any, index: number) => {
           const evalOptions = {
-            evalListItem: true,
             scopeObject: {
               [LIST_ITEM_EXP]: record,
             },
           };
-          const evaledColumn: ColumnProperty = services.stateManager.deepEval(
-            column,
+
+          const rawColumn = component.properties.columns[i];
+          const evaledColumn = services.stateManager.deepEval(
+            rawColumn,
             evalOptions
-          );
+          ) as ColumnProperty;
+
           const value = record[evaledColumn.dataIndex];
 
           let colItem;
@@ -365,12 +381,7 @@ export const Table = implementRuntimeComponent({
           switch (evaledColumn.type) {
             case 'button':
               const handleClick = () => {
-                const rawColumns = component.properties.columns;
-                const evaledColumns = services.stateManager.deepEval(
-                  rawColumns,
-                  evalOptions
-                ) as ColumnProperty[];
-                const evaledButtonConfig = evaledColumns[i].btnCfg;
+                const evaledButtonConfig = evaledColumn.btnCfg;
 
                 if (!evaledButtonConfig) return;
 
@@ -379,6 +390,8 @@ export const Table = implementRuntimeComponent({
                     componentId: handler.componentId,
                     name: handler.method.name,
                     parameters: handler.method.parameters || {},
+                    triggerId: component.id,
+                    eventType: 'onClick',
                   });
                 });
               };
@@ -414,10 +427,10 @@ export const Table = implementRuntimeComponent({
               break;
 
             case 'component':
-              const childrenSchema = app.spec.components.filter(c => {
+              const childrenSchema = allComponents.filter(c => {
                 return c.traits.find(
                   t =>
-                    t.type === 'core/v1/slot' &&
+                    (t.type === 'core/v1/slot' || t.type === 'core/v2/slot') &&
                     (t.properties.container as any).id === component.id
                 );
               });
@@ -439,10 +452,14 @@ export const Table = implementRuntimeComponent({
               /**
                * FIXME: temporary hack
                */
-              slotsElements.content?.({
-                [LIST_ITEM_EXP]: record,
-                [LIST_ITEM_INDEX_EXP]: index,
-              });
+              slotsElements.content?.(
+                {
+                  [LIST_ITEM_EXP]: record,
+                  [LIST_ITEM_INDEX_EXP]: index,
+                },
+                undefined,
+                `${childSchema.id}_${index}`
+              );
 
               colItem = (
                 <ImplWrapper
@@ -450,12 +467,16 @@ export const Table = implementRuntimeComponent({
                   component={_childrenSchema}
                   app={app}
                   services={services}
+                  allComponents={allComponents}
                   childrenMap={{}}
                   isInModule
-                  evalListItem
                   slotContext={{
                     renderSet: new Set(),
-                    slotKey: formatSlotKey(_childrenSchema.id, 'td', `td_${index}`),
+                    slotKey: formatSlotKey(
+                      component.id,
+                      'content',
+                      `${childSchema.id}_${index}`
+                    ),
                   }}
                 />
               );
@@ -484,7 +505,7 @@ export const Table = implementRuntimeComponent({
   const handleChange = (
     pagination: PaginationProps,
     sorter: { field?: string; direction?: 'descend' | 'ascend' },
-    filters: FilterRule,
+    filters: Partial<Record<string, string[]>>,
     extra: { currentData: any[]; action: 'paginate' | 'sort' | 'filter' }
   ) => {
     const { current } = pagination;
@@ -493,9 +514,9 @@ export const Table = implementRuntimeComponent({
     switch (action) {
       case 'paginate':
         if (useCustomPagination) {
-          mergeState({ currentPage: current, pageSize });
           callbackMap?.onPageChange?.();
         }
+        mergeState({ currentPage: current, pageSize });
         setCurrentPage(current!);
         break;
       case 'sort':
@@ -509,7 +530,7 @@ export const Table = implementRuntimeComponent({
         break;
       case 'filter':
         if (!useDefaultFilter) {
-          mergeState({ filterRule: filters });
+          mergeState({ filterRule: filters as Record<string, string[]> });
           callbackMap?.onFilter?.();
         }
         break;
@@ -555,16 +576,6 @@ export const Table = implementRuntimeComponent({
         checkCrossPage: checkCrossPage,
         // This option is required to achieve multi-selection across pages when customizing paging
         preserveSelectedRowKeys: useCustomPagination ? checkCrossPage : undefined,
-        onSelect: (selected, record) => {
-          mergeState({
-            selectedRow: selected ? record : undefined,
-          });
-        },
-        onSelectAll: () => {
-          mergeState({
-            selectedRow: undefined,
-          });
-        },
         onChange(selectedRowKeys, selectedRows) {
           currentChecked.current = selectedRowKeys;
           mergeState({
@@ -589,6 +600,7 @@ export const Table = implementRuntimeComponent({
                     prevSelectedEl?.classList.remove('selected');
                   }
                   tr?.classList.add('selected');
+                  currentClickedRow.current = record[rowKey];
                   mergeState({ clickedRow: record });
                   callbackMap?.onRowClick?.();
                 },

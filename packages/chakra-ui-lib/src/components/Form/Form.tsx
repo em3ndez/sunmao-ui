@@ -88,11 +88,14 @@ export default implementRuntimeComponent({
             services.apiService.send('uiMethod', {
               componentId: inputId,
               name: 'resetInputValue',
+              triggerId: component.id,
+              eventType: 'resetForm',
             });
           });
         },
       });
     }, [
+      component.id,
       formControlIds,
       services.apiService,
       services.stateManager.store,

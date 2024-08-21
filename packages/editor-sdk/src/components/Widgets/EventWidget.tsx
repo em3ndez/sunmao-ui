@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, Suspense } from 'react';
 import { FormControl, FormLabel, Input, Select } from '@chakra-ui/react';
 import { Type, Static } from '@sinclair/typebox';
 import { useFormik } from 'formik';
 import { GLOBAL_UTIL_METHOD_ID } from '@sunmao-ui/runtime';
-import { ComponentSchema } from '@sunmao-ui/core';
+import { ComponentSchema, MethodSchema } from '@sunmao-ui/core';
 import { WidgetProps } from '../../types/widget';
 import { implementWidget, mergeWidgetOptionsIntoSpec } from '../../utils/widget';
 import { RecordWidget } from './RecordField';
@@ -13,10 +13,14 @@ import {
   CORE_VERSION,
   CoreWidgetName,
   generateDefaultValueFromSpec,
+  MountEvents,
+  GLOBAL_MODULE_ID,
+  ModuleEventMethodSpec,
+  isModuleContainer,
 } from '@sunmao-ui/shared';
-import { Select as RcSelect } from '../Select';
 import { JSONSchema7Object } from 'json-schema';
 import { PREVENT_POPOVER_WIDGET_CLOSE_CLASS } from '../../constants/widget';
+import { Select as ComponentTargetSelect } from '../Select';
 
 const EventWidgetOptions = Type.Object({});
 
@@ -31,7 +35,7 @@ declare module '../../types/widget' {
 export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(props => {
   const { value, path, level, component, spec, services, onChange } = props;
   const { registry, editorStore, appModelManager } = services;
-  const { components } = editorStore;
+  const { components, currentEditingTarget } = editorStore;
   const utilMethods = useMemo(() => registry.getAllUtilMethods(), [registry]);
   const [methods, setMethods] = useState<string[]>([]);
 
@@ -42,28 +46,66 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
     },
   });
   const findMethodsByComponent = useCallback(
-    (component?: ComponentSchema) => {
-      if (!component) {
+    (targetComponent?: ComponentSchema) => {
+      if (!targetComponent) {
         return [];
       }
 
-      const componentMethods = Object.entries(
-        registry.getComponentByType(component.type).spec.methods
+      const componentMethods: MethodSchema[] = Object.entries(
+        registry.getComponentByType(targetComponent.type).spec.methods
       ).map(([name, parameters]) => ({
         name,
         parameters,
       }));
-      const traitMethods = component.traits
+      const traitMethods: MethodSchema[] = targetComponent.traits
         .map(trait => registry.getTraitByType(trait.type).spec.methods)
         .flat();
 
-      return ([] as any[]).concat(componentMethods, traitMethods);
+      const moduleMethods: MethodSchema[] = [];
+      if (isModuleContainer(targetComponent)) {
+        const moduleType = targetComponent.properties.type as string;
+        const moduleSpec = registry.getModuleByType(moduleType);
+        moduleSpec.spec.methods.forEach(m => {
+          const innerComponent = moduleSpec.impl.find(c => c.id === m.componentId);
+          if (innerComponent) {
+            // find the method spec from the component or component's traits
+            const cMethod = registry.getComponentByType(innerComponent.type).spec.methods[
+              m.componentMethod
+            ];
+            const tMethod = innerComponent.traits
+              .map(trait => registry.getTraitByType(trait.type).spec.methods)
+              .flat()
+              .find(_m => _m.name === m.componentMethod);
+            if (cMethod || tMethod) {
+              moduleMethods.push({
+                name: m.name,
+                parameters: cMethod || tMethod?.parameters,
+              });
+            }
+          }
+        });
+      }
+
+      return ([] as any[]).concat(componentMethods, traitMethods, moduleMethods);
     },
     [registry]
   );
+
   const eventTypes = useMemo(() => {
-    return registry.getComponentByType(component.type).spec.events;
-  }, [component.type, registry]);
+    let moduleEvents: string[] = [];
+    if (component.type === 'core/v1/moduleContainer') {
+      // if component is moduleContainer, add module events to it
+      const moduleType = component.properties.type as string;
+      const moduleSpec = registry.getModuleByType(moduleType);
+      moduleEvents = moduleSpec.spec.events;
+    }
+    return [
+      ...registry.getComponentByType(component.type).spec.events,
+      ...moduleEvents,
+      ...MountEvents,
+    ];
+  }, [component.properties.type, component.type, registry]);
+
   const hasParams = useMemo(
     () => Object.keys(formik.values.method.parameters ?? {}).length,
     [formik.values.method.parameters]
@@ -78,8 +120,12 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
         const targetMethod = registry.getUtilMethodByType(methodType)!;
 
         spec = targetMethod.spec.parameters;
+      } else if (componentId === GLOBAL_MODULE_ID) {
+        spec = ModuleEventMethodSpec;
       } else {
-        const targetComponent = appModelManager.appModel.getComponentById(componentId);
+        const targetComponent = appModelManager.appModel
+          .getComponentById(componentId)
+          .toSchema();
         const targetMethod = (findMethodsByComponent(targetComponent) ?? []).find(
           ({ name }) => name === formik.values.method.name
         );
@@ -139,26 +185,51 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
             utilMethod => `${utilMethod.version}/${utilMethod.metadata.name}`
           )
         );
+      } else if (
+        componentId === GLOBAL_MODULE_ID &&
+        currentEditingTarget.kind === 'module'
+      ) {
+        // if user is editing module, show the events of module spec as method
+        const moduleType = `${currentEditingTarget.version}/${currentEditingTarget.name}`;
+        let methodNames: string[] = [];
+        if (moduleType) {
+          const moduleSpec = services.registry.getModuleByType(moduleType);
+
+          if (moduleSpec) {
+            methodNames = moduleSpec.spec.events;
+          }
+        }
+        setMethods(methodNames);
       } else {
+        // if user is editing application, show methods of component
         const component = components.find(c => c.id === componentId);
 
         if (component) {
           const methodNames: string[] = findMethodsByComponent(component).map(
             ({ name }) => name
           );
-
           setMethods(methodNames);
         }
       }
     },
-    [components, utilMethods, findMethodsByComponent]
+    [
+      currentEditingTarget.kind,
+      currentEditingTarget.version,
+      currentEditingTarget.name,
+      utilMethods,
+      services.registry,
+      components,
+      findMethodsByComponent,
+    ]
   );
 
   useEffect(() => {
     formik.setValues(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, formik.setValues]);
   useEffect(() => {
     formik.setFieldValue('method.parameters', params);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params, formik.setFieldValue]);
   useEffect(() => {
     if (formik.values.componentId) {
@@ -167,13 +238,13 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
   }, [formik.values.componentId, updateMethods]);
 
   const onTargetComponentChange = useCallback(
-    (value: string) => {
+    (value: unknown) => {
       formik.setValues({
         ...formik.values,
         componentId: value,
         method: { name: '', parameters: {} },
       });
-      updateMethods(value);
+      updateMethods(value as string);
     },
     [updateMethods, formik]
   );
@@ -215,27 +286,35 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
       </Select>
     </FormControl>
   );
+
   const targetField = (
     <FormControl>
       <FormLabel fontSize="14px" fontWeight="normal">
         Target Component
       </FormLabel>
-      <RcSelect
-        showSearch
-        onBlur={onSubmit}
-        bordered={false}
-        onChange={onTargetComponentChange}
-        placeholder="Select Target Component"
-        dropdownClassName={PREVENT_POPOVER_WIDGET_CLOSE_CLASS}
-        style={{ width: '100%' }}
-        value={formik.values.componentId === '' ? undefined : formik.values.componentId}
-      >
-        {[{ id: GLOBAL_UTIL_METHOD_ID }].concat(components).map(c => (
-          <RcSelect.Option key={c.id} value={c.id}>
-            {c.id}
-          </RcSelect.Option>
-        ))}
-      </RcSelect>
+      <Suspense fallback="Loading Component Target Select">
+        <ComponentTargetSelect
+          showSearch
+          onBlur={onSubmit}
+          bordered={false}
+          onChange={onTargetComponentChange}
+          placeholder="Select Target Component"
+          dropdownClassName={PREVENT_POPOVER_WIDGET_CLOSE_CLASS}
+          style={{ width: '100%' }}
+          value={formik.values.componentId === '' ? undefined : formik.values.componentId}
+        >
+          {currentEditingTarget.kind === 'module' ? (
+            <ComponentTargetSelect.Option key={GLOBAL_MODULE_ID} value={GLOBAL_MODULE_ID}>
+              {GLOBAL_MODULE_ID}
+            </ComponentTargetSelect.Option>
+          ) : undefined}
+          {[{ id: GLOBAL_UTIL_METHOD_ID }].concat(components).map(c => (
+            <ComponentTargetSelect.Option key={c.id} value={c.id}>
+              {c.id}
+            </ComponentTargetSelect.Option>
+          ))}
+        </ComponentTargetSelect>
+      </Suspense>
     </FormControl>
   );
   const methodField = (
@@ -301,6 +380,7 @@ export const EventWidget: React.FC<WidgetProps<EventWidgetType>> = observer(prop
       </FormLabel>
       <Input
         name="wait.time"
+        type="number"
         onBlur={onSubmit}
         onChange={formik.handleChange}
         value={formik.values.wait?.time}

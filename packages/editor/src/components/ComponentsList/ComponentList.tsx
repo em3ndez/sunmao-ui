@@ -12,7 +12,6 @@ import {
   InputRightElement,
   Tag,
 } from '@chakra-ui/react';
-import { CoreComponentName, CORE_VERSION } from '@sunmao-ui/shared';
 import { groupBy, sortBy } from 'lodash';
 import { EditorServices } from '../../types';
 import { ExplorerMenuTabs } from '../../constants/enum';
@@ -53,7 +52,7 @@ function getCategoryOrder(name: string): number {
 function getTagColor(version: string): string {
   if (version.startsWith('chakra_ui/')) {
     return 'teal';
-  } else if (version.startsWith(CORE_VERSION)) {
+  } else if (version.startsWith('core/')) {
     return 'yellow';
   } else {
     return 'blackAlpha';
@@ -65,8 +64,6 @@ const tagStyle = css`
   text-overflow: ellipsis;
   white-space: nowrap;
 `;
-
-const IGNORE_COMPONENTS: string[] = [CoreComponentName.Dummy];
 
 export const ComponentList: React.FC<Props> = ({ services }) => {
   const { registry, editorStore } = services;
@@ -85,7 +82,8 @@ export const ComponentList: React.FC<Props> = ({ services }) => {
     const grouped = groupBy(
       registry.getAllComponents().filter(c => {
         if (
-          IGNORE_COMPONENTS.includes(c.metadata.name) ||
+          c.metadata.isDataSource ||
+          c.metadata.deprecated ||
           (checkedVersions.length && !checkedVersions.includes(c.version))
         ) {
           return false;
@@ -115,13 +113,17 @@ export const ComponentList: React.FC<Props> = ({ services }) => {
         />
         <InputRightElement>
           <ComponentFilter
-            versions={versions}
-            checkedVersions={checkedVersions}
-            setCheckedVersions={setCheckedVersions}
+            options={versions}
+            checkedOptions={checkedVersions}
+            onChange={setCheckedVersions}
           />
         </InputRightElement>
       </InputGroup>
-      <Accordion allowMultiple defaultIndex={categories.map((_, idx) => idx)}>
+      <Accordion
+        allowMultiple
+        defaultIndex={categories.map((_, idx) => idx)}
+        reduceMotion
+      >
         {categories.map(category => {
           return (
             <AccordionItem key={category.name}>

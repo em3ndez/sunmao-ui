@@ -53,6 +53,7 @@ export function addModuleId(originModule: Module): Module {
     traverse(module.impl);
     // value of stateMap is expression, not property
     traverse(module.spec.stateMap, true);
+    traverse(module.spec.methods, true);
   });
 }
 
@@ -72,12 +73,13 @@ export function removeModuleId(originModule: Module): Module {
 
     traverse(module.impl);
     traverse(module.spec.stateMap);
+    traverse(module.spec.methods);
   });
 }
 
 // example: replaceIdsInExp('{{input1.value}} + {{input2.value}}', ids: ['input1']])
-function replaceIdsInProperty(property: string, ids: string[]): string {
-  const matches = [...property.matchAll(/{{(.*?)}}/g)];
+export function replaceIdsInProperty(property: string, ids: string[]): string {
+  const matches = [...property.matchAll(/{{((.|\n)*?)}}/g)];
 
   if (matches.length === 0) return property;
 

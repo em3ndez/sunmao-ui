@@ -9,9 +9,10 @@ import {
   Portal,
 } from '@chakra-ui/react';
 import { RegistryInterface } from '@sunmao-ui/runtime';
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { hideCreateTraitsList } from '../../../constants';
 import { ComponentSchema } from '@sunmao-ui/core';
+import { ComponentFormElementId } from '@sunmao-ui/editor-sdk';
 
 type Props = {
   registry: RegistryInterface;
@@ -21,6 +22,7 @@ type Props = {
 
 export const AddTraitButton: React.FC<Props> = props => {
   const { onAddTrait, registry, component } = props;
+  const containerRef = useRef(document.getElementById(ComponentFormElementId) || null);
   const componentTraitsMap = useMemo(
     () =>
       component.traits.reduce((result, trait) => {
@@ -29,13 +31,18 @@ export const AddTraitButton: React.FC<Props> = props => {
       }, {} as Record<string, boolean>),
     [component]
   );
-  const traitTypes = useMemo(() => {
+  const traits = useMemo(() => {
     return registry
-      .getAllTraitTypes()
-      .filter(type => !hideCreateTraitsList.includes(type));
+      .getAllTraits()
+      .filter(
+        t =>
+          !t.metadata.deprecated &&
+          !hideCreateTraitsList.includes(`${t.version}/${t.metadata.name}`)
+      );
   }, [registry]);
 
-  const menuItems = traitTypes.map(type => {
+  const menuItems = traits.map(t => {
+    const type = `${t.version}/${t.metadata.name}`;
     return (
       <MenuItem
         key={type}
@@ -48,7 +55,7 @@ export const AddTraitButton: React.FC<Props> = props => {
   });
   return (
     <Box>
-      <Menu>
+      <Menu isLazy>
         <MenuButton
           as={Button}
           aria-label="add event"
@@ -59,8 +66,8 @@ export const AddTraitButton: React.FC<Props> = props => {
         >
           Add Trait
         </MenuButton>
-        <Portal>
-          <MenuList>{menuItems}</MenuList>
+        <Portal containerRef={containerRef}>
+          <MenuList zIndex={100}>{menuItems}</MenuList>
         </Portal>
       </Menu>
     </Box>

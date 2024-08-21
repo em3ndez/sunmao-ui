@@ -3,6 +3,7 @@ import { parseType, SlotSpec } from '@sunmao-ui/core';
 // components
 /* --- core --- */
 import CoreText from '../components/core/Text';
+import CoreTextV2 from '../components/core/TextV2';
 import CoreRouter from '../components/core/Router';
 import CoreDummy from '../components/core/Dummy';
 import CoreModuleContainer from '../components/core/ModuleContainer';
@@ -10,12 +11,14 @@ import CoreStack from '../components/core/Stack';
 import CoreFileInput from '../components/core/FileInput';
 import CoreList from '../components/core/List';
 import CoreIframe from '../components/core/Iframe';
+import CoreWatcher from '../components/core/Watcher';
 
 // traits
 import CoreArrayState from '../traits/core/ArrayState';
 import CoreState from '../traits/core/State';
 import CoreEvent from '../traits/core/Event';
 import CoreSlot from '../traits/core/Slot';
+import CoreSlotV2 from '../traits/core/SlotV2';
 import CoreStyle from '../traits/core/Style';
 import CoreHidden from '../traits/core/Hidden';
 import CoreFetch from '../traits/core/Fetch';
@@ -247,6 +250,7 @@ export function initRegistry(
 ): Registry {
   const registry = new Registry(services, utilMethodManager);
   registry.registerComponent(CoreText);
+  registry.registerComponent(CoreTextV2);
   registry.registerComponent(CoreRouter);
   registry.registerComponent(CoreDummy);
   registry.registerComponent(CoreModuleContainer);
@@ -254,11 +258,13 @@ export function initRegistry(
   registry.registerComponent(CoreFileInput);
   registry.registerComponent(CoreList);
   registry.registerComponent(CoreIframe);
+  registry.registerComponent(CoreWatcher);
 
   registry.registerTrait(CoreState);
   registry.registerTrait(CoreArrayState);
   registry.registerTrait(CoreEvent);
   registry.registerTrait(CoreSlot);
+  registry.registerTrait(CoreSlotV2);
   registry.registerTrait(CoreStyle);
   registry.registerTrait(CoreHidden);
   registry.registerTrait(CoreFetch);

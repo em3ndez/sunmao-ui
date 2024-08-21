@@ -31,7 +31,7 @@ export const Select = implementRuntimeComponent({
       labelInValue: false,
       loading: false,
       showSearch: false,
-      unmountOnExit: false,
+      unmountOnExit: true,
       showTitle: false,
       options: [
         { value: 'Beijing', text: 'Beijing' },
@@ -42,6 +42,12 @@ export const Select = implementRuntimeComponent({
       size: 'default',
       error: false,
       updateWhenDefaultValueChanges: false,
+      autoFixPosition: false,
+      autoAlignPopupMinWidth: false,
+      autoAlignPopupWidth: true,
+      autoFitPosition: false,
+      position: 'bottom',
+      mountToBody: true,
     },
     annotations: {
       category: 'Data Entry',
@@ -50,7 +56,11 @@ export const Select = implementRuntimeComponent({
   spec: {
     properties: SelectPropsSpec,
     state: SelectStateSpec,
-    methods: {},
+    methods: {
+      setValue: Type.Object({
+        value: Type.String(),
+      }),
+    },
     slots: {
       dropdownRenderSlot: { slotProps: Type.Object({}) },
     },
@@ -64,21 +74,44 @@ export const Select = implementRuntimeComponent({
     customStyle,
     callbackMap,
     mergeState,
-    defaultValue = '',
+    defaultValue,
+    subscribeMethods,
   } = props;
   const {
     options = [],
     retainInputValue,
     updateWhenDefaultValueChanges,
     showTitle,
+    mountToBody,
+    autoFixPosition,
+    autoAlignPopupMinWidth,
+    autoAlignPopupWidth,
+    autoFitPosition,
+    position,
     ...cProps
   } = getComponentProps(props);
+
   const [value, setValue] = useStateValue(
-    defaultValue,
+    defaultValue || undefined,
     mergeState,
-    updateWhenDefaultValueChanges
+    updateWhenDefaultValueChanges,
+    undefined,
+    callbackMap?.onChange
   );
+
   const ref = useRef<SelectHandle | null>(null);
+
+  useEffect(() => {
+    subscribeMethods({
+      setValue: ({ value }: { value: string }) => {
+        setValue(value);
+        callbackMap?.onChange?.();
+        mergeState({
+          value,
+        });
+      },
+    });
+  }, [callbackMap, mergeState, setValue, subscribeMethods]);
 
   useEffect(() => {
     const ele = ref.current?.dom;
@@ -105,6 +138,13 @@ export const Select = implementRuntimeComponent({
       }}
       value={value}
       {...cProps}
+      triggerProps={{
+        autoAlignPopupMinWidth,
+        autoAlignPopupWidth,
+        autoFitPosition,
+        autoFixPosition,
+        position,
+      }}
       showSearch={showSearch}
       filterOption={(inputValue, option) =>
         option.props.value.toLowerCase().indexOf(inputValue.toLowerCase()) >= 0 ||
@@ -119,6 +159,9 @@ export const Select = implementRuntimeComponent({
               : null}
           </div>
         );
+      }}
+      getPopupContainer={node => {
+        return mountToBody ? document.body : node;
       }}
       mode={cProps.multiple ? 'multiple' : undefined}
       onClear={() => {

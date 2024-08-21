@@ -1,31 +1,29 @@
 import React from 'react';
-import { WidgetProps, implementWidget } from '@sunmao-ui/editor-sdk';
+import { WidgetProps, implementWidget, isExpression } from '@sunmao-ui/editor-sdk';
 import { ColumnSpec } from '../generated/types/Table';
 import { Static } from '@sinclair/typebox';
 import { Select } from '@arco-design/web-react';
 import { ARCO_V1_VERSION } from '../constants/widgets';
 
-type TablePrimaryKeyWidget = 'arco/v1/primaryKey';
+type TablePrimaryKeyWidgetID = 'arco/v1/primaryKey';
 
-declare module '@sunmao-ui/editor-sdk' {
-  interface WidgetOptionsMap {
-    'arco/v1/primaryKey': Record<string, unknown>;
-  }
-}
-
-export const TablePrimaryKeyWidget: React.FC<
-  WidgetProps<TablePrimaryKeyWidget, string>
+export const _TablePrimaryKeyWidget: React.FC<
+  WidgetProps<TablePrimaryKeyWidgetID, string>
 > = props => {
-  const { value, onChange, component } = props;
+  const { value, onChange, component, services } = props;
   const { properties } = component;
-  const columns = properties.columns as Static<typeof ColumnSpec>[];
+  const columns = (
+    isExpression(properties.columns)
+      ? services.stateManager.deepEval(properties.columns as string)
+      : properties.columns
+  ) as Static<typeof ColumnSpec>[];
 
   const keys = columns.map(c => c.dataIndex);
 
   return (
     <Select
       value={value}
-      defaultValue="auto"
+      allowCreate
       onChange={value => {
         onChange(value);
       }}
@@ -41,9 +39,9 @@ export const TablePrimaryKeyWidget: React.FC<
   );
 };
 
-export default implementWidget<TablePrimaryKeyWidget>({
+export const TablePrimaryKeyWidget = implementWidget<TablePrimaryKeyWidgetID>({
   version: ARCO_V1_VERSION,
   metadata: {
     name: 'primaryKey',
   },
-})(TablePrimaryKeyWidget);
+})(_TablePrimaryKeyWidget);

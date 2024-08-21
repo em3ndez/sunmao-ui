@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { ReactNode, useState } from 'react';
 import {
   HStack,
   Box,
@@ -10,7 +10,6 @@ import {
   Popover,
   PopoverTrigger,
   PopoverContent,
-  Portal,
 } from '@chakra-ui/react';
 import { isEmpty } from 'lodash';
 import { Type, Static } from '@sinclair/typebox';
@@ -110,7 +109,7 @@ const descriptionStyle = css`
   }
 `;
 
-const DefaultTemplate: React.FC<TemplateProps> = props => {
+export const DefaultTemplate: React.FC<TemplateProps> = props => {
   const {
     id,
     label,
@@ -130,42 +129,48 @@ const DefaultTemplate: React.FC<TemplateProps> = props => {
     return <div className="hidden">{children.content}</div>;
   }
 
+  let labelNode: ReactNode | undefined;
+
+  if (displayLabel) {
+    let labelSpan = <span className={LabelStyle}>{children.title || label}</span>;
+    if (description) {
+      labelSpan = (
+        <Popover trigger="hover" isLazy closeOnBlur placement="top-start">
+          <PopoverTrigger>{labelSpan}</PopoverTrigger>
+          <PopoverContent
+            mt="1"
+            p="2"
+            opacity="0"
+            rounded="md"
+            maxH="350px"
+            shadow="base"
+            zIndex="popover"
+            overflowY="auto"
+            width="200px"
+            bg="blackAlpha.700"
+            _focus={{ boxShadow: 'none' }}
+          >
+            <p className={css(descriptionStyle)}>{description}</p>
+          </PopoverContent>
+        </Popover>
+      );
+    }
+    labelNode = (
+      <FormLabel display="flex" alignItems="center">
+        {labelSpan}
+        {codeMode && (
+          <ExpressionButton
+            isExpression={isExpression}
+            setIsExpression={setIsExpression}
+          />
+        )}
+      </FormLabel>
+    );
+  }
+
   return (
     <FormControl className={FormControlStyle} isRequired={required} id={id}>
-      {displayLabel && (
-        <Popover trigger="hover" closeOnBlur placement="left">
-          <PopoverTrigger>
-            <FormLabel display="flex" alignItems="center">
-              <span className={LabelStyle}>{children.title || label}</span>
-              {codeMode && (
-                <ExpressionButton
-                  isExpression={isExpression}
-                  setIsExpression={setIsExpression}
-                />
-              )}
-            </FormLabel>
-          </PopoverTrigger>
-          <Portal>
-            {description ? (
-              <PopoverContent
-                mt="1"
-                p="2"
-                opacity="0"
-                rounded="md"
-                maxH="350px"
-                shadow="base"
-                zIndex="popover"
-                overflowY="auto"
-                width="200px"
-                bg="blackAlpha.700"
-                _focus={{ boxShadow: 'none' }}
-              >
-                <p className={css(descriptionStyle)}>{description}</p>
-              </PopoverContent>
-            ) : null}
-          </Portal>
-        </Popover>
-      )}
+      {labelNode}
       {children.content}
       {errors && <FormErrorMessage>{errors}</FormErrorMessage>}
       {help && <FormHelperText>{help}</FormHelperText>}
@@ -182,6 +187,7 @@ export const SchemaFieldWidgetOptions = Type.Object({
 
 type SpecFieldWidgetType = `${typeof CORE_VERSION}/${CoreWidgetName.Spec}`;
 type Props = WidgetProps<SpecFieldWidgetType> & {
+  hideCategory?: boolean;
   children?:
     | (React.ReactNode & {
         title?: any;
@@ -196,7 +202,17 @@ declare module '../../types/widget' {
 }
 
 export const SpecWidget: React.FC<Props> = props => {
-  const { component, spec, level, path, value, services, children, onChange } = props;
+  const {
+    component,
+    spec,
+    level,
+    path,
+    value,
+    services,
+    children,
+    onChange,
+    hideCategory,
+  } = props;
   const { title, widgetOptions } = spec;
   const { isShowAsideExpressionButton, expressionOptions, isHidden } =
     widgetOptions || {};
@@ -221,7 +237,7 @@ export const SpecWidget: React.FC<Props> = props => {
     Component = ExpressionWidget;
   } else if (widget) {
     Component = widget.impl;
-  } else if (level === 0) {
+  } else if (level === 0 && !hideCategory) {
     Component = CategoryWidget;
     showAsideExpressionButton = false;
   }
@@ -245,7 +261,6 @@ export const SpecWidget: React.FC<Props> = props => {
   } else {
     Component = ExpressionWidget;
   }
-
   return (
     <DefaultTemplate
       label={label}

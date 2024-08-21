@@ -4,10 +4,11 @@ import { initRegistry, SunmaoLib } from './services/Registry';
 import { initApiService } from './services/apiService';
 import { initGlobalHandlerMap } from './services/handler';
 import { UtilMethodManager } from './services/UtilMethodManager';
-import { AppHooks } from './types';
+import { AppHooks, UIServices } from './types';
 import { enableES5, setAutoFreeze } from 'immer';
 import './style.css';
 import { initSlotReceiver } from './services/SlotReciver';
+import { debugLogger, DebuggerHandler } from './services/debugger';
 
 // immer would make some errors when read the states, so we do these to avoid it temporarily
 // ref: https://github.com/immerjs/immer/issues/916
@@ -19,6 +20,7 @@ export type SunmaoUIRuntimeProps = {
   dependencies?: Record<string, any>;
   hooks?: AppHooks;
   isInEditor?: boolean;
+  debugHandler?: DebuggerHandler;
 };
 
 export function initSunmaoUI(props: SunmaoUIRuntimeProps = {}) {
@@ -39,32 +41,36 @@ export function initSunmaoUI(props: SunmaoUIRuntimeProps = {}) {
     utilMethodManager
   );
 
+  // record debug info
+  debugLogger(apiService, stateManager, props.debugHandler);
+
   props.libs?.forEach(lib => {
     registry.installLib(lib);
   });
+  const services: UIServices = {
+    registry,
+    stateManager,
+    globalHandlerMap,
+    apiService,
+    eleMap,
+    slotReceiver,
+  };
+
+  (window as any).sunmaoServices = services;
 
   return {
-    App: genApp(
-      {
-        registry,
-        stateManager,
-        globalHandlerMap,
-        apiService,
-        eleMap,
-        slotReceiver,
-      },
-      props.hooks,
-      props.isInEditor
-    ),
+    App: genApp(services, props.hooks, props.isInEditor),
     stateManager,
     registry,
     globalHandlerMap,
     apiService,
     eleMap,
+    slotReceiver,
   };
 }
 
 export * from './utils/buildKit';
+export * from './utils/runEventHandler';
 export * from './types';
 export * from './constants';
 export * from './traits/core';
@@ -102,3 +108,4 @@ export { formatSlotKey } from './components/_internal/ImplWrapper/hooks/useSlotC
 
 // TODO: check this export
 export { watch } from './utils/watchReactivity';
+export { printDebugInfo, saveDebugInfoToLocalstorage } from './services/debugger';

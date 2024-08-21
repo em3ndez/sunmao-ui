@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useCallback,
   useImperativeHandle,
+  useRef,
 } from 'react';
 import {
   Popover,
@@ -20,7 +21,11 @@ import { SpecWidget } from './SpecWidget';
 import { implementWidget } from '../../utils/widget';
 import { WidgetProps } from '../../types/widget';
 import { CORE_VERSION, CoreWidgetName } from '@sunmao-ui/shared';
-import { PREVENT_POPOVER_WIDGET_CLOSE_CLASS } from '../../constants/widget';
+import {
+  PREVENT_POPOVER_WIDGET_CLOSE_CLASS,
+  ComponentFormElementId,
+} from '../../constants';
+import { Static, Type } from '@sinclair/typebox';
 
 type EvenType = {
   'sub-popover-close': string[];
@@ -37,11 +42,16 @@ type Children = {
   body?: React.ReactElement;
 };
 
-type PopoverWidgetType = `${typeof CORE_VERSION}/${CoreWidgetName.Popover}`;
+export type PopoverWidgetType = `${typeof CORE_VERSION}/${CoreWidgetName.Popover}`;
+
+const PopoverWidgetOption = Type.Object({
+  appendToBody: Type.Optional(Type.Boolean()),
+  appendToParent: Type.Optional(Type.Boolean()),
+});
 
 declare module '../../types/widget' {
   interface WidgetOptionsMap {
-    'core/v1/popover': {};
+    'core/v1/popover': Static<typeof PopoverWidgetOption>;
   }
 }
 
@@ -52,6 +62,11 @@ export const PopoverWidget = React.forwardRef<
   React.ComponentPropsWithoutRef<React.ComponentType> & WidgetProps<PopoverWidgetType>
 >((props, ref) => {
   const { spec, path, children } = props;
+  const containerRef = useRef(
+    spec.widgetOptions?.appendToBody
+      ? null
+      : document.getElementById(ComponentFormElementId)
+  );
   const isObjectChildren = children && typeof children === 'object';
   const [isInit, setIsInit] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -65,6 +80,12 @@ export const PopoverWidget = React.forwardRef<
     }),
     [spec]
   );
+
+  useEffect(() => {
+    containerRef.current = spec.widgetOptions?.appendToBody
+      ? null
+      : document.getElementById(ComponentFormElementId);
+  }, [spec.widgetOptions]);
 
   const handleOpen = useCallback(() => {
     setIsOpen(true);
@@ -121,8 +142,9 @@ export const PopoverWidget = React.forwardRef<
   }, [handlerCloseByParent, handlerCloseByOther]);
   useEffect(() => {
     const handleClickOutside = (event: any) => {
+      const eventPath = event.path || (event.composedPath && event.composedPath()) || [];
       if (
-        event.path.some((node: Element) =>
+        eventPath.some((node: Element) =>
           [...(node.classList?.values() || [])].includes(
             PREVENT_POPOVER_WIDGET_CLOSE_CLASS
           )
@@ -150,8 +172,34 @@ export const PopoverWidget = React.forwardRef<
     },
   }));
 
+  const popoverContent = (
+    <PopoverContent
+      width="sm"
+      className={PREVENT_POPOVER_WIDGET_CLOSE_CLASS}
+      onClick={handleClickContent}
+    >
+      <PopoverArrow />
+      <PopoverBody maxHeight="75vh" overflow="auto" paddingBottom="96px">
+        {isInit ? (
+          isObjectChildren && 'body' in children ? (
+            (children as Children).body
+          ) : (
+            <SpecWidget {...props} spec={mergedSpec} />
+          )
+        ) : null}
+      </PopoverBody>
+    </PopoverContent>
+  );
+
   return (
-    <Popover placement="left" closeOnBlur={false} isOpen={isOpen} onOpen={handleOpen}>
+    <Popover
+      isLazy
+      placement="left"
+      closeOnBlur={false}
+      isOpen={isOpen}
+      onOpen={handleOpen}
+      autoFocus={false}
+    >
       <PopoverTrigger>
         {isObjectChildren && 'trigger' in children ? (
           (children as Children).trigger
@@ -165,23 +213,15 @@ export const PopoverWidget = React.forwardRef<
           />
         )}
       </PopoverTrigger>
-      <Portal>
-        <PopoverContent
-          className={PREVENT_POPOVER_WIDGET_CLOSE_CLASS}
-          onClick={handleClickContent}
+      {spec.widgetOptions?.appendToParent ? (
+        popoverContent
+      ) : (
+        <Portal
+          containerRef={spec.widgetOptions?.appendToBody ? undefined : containerRef}
         >
-          <PopoverArrow />
-          <PopoverBody maxHeight="400px" overflow="auto">
-            {isInit ? (
-              isObjectChildren && 'body' in children ? (
-                (children as Children).body
-              ) : (
-                <SpecWidget {...props} spec={mergedSpec} />
-              )
-            ) : null}
-          </PopoverBody>
-        </PopoverContent>
-      </Portal>
+          {popoverContent}
+        </Portal>
+      )}
     </Popover>
   );
 });
@@ -190,5 +230,8 @@ export default implementWidget<PopoverWidgetType>({
   version: CORE_VERSION,
   metadata: {
     name: CoreWidgetName.Popover,
+  },
+  spec: {
+    options: PopoverWidgetOption,
   },
 })(PopoverWidget);

@@ -12,7 +12,6 @@ import {
   LIST_ITEM_INDEX_EXP,
   ModuleRenderer,
   UIServices,
-  ExpressionError,
   ImplWrapper,
   SlotsElements,
   formatSlotKey,
@@ -26,6 +25,7 @@ export const TableTd: React.FC<{
   onClickItem: () => void;
   services: UIServices;
   component: RuntimeComponentSchema;
+  allComponents: RuntimeComponentSchema[];
   app: RuntimeApplication;
   slotsElements: SlotsElements<{
     content: {
@@ -42,25 +42,28 @@ export const TableTd: React.FC<{
     onClickItem,
     services,
     app,
+    allComponents,
     slotsElements,
   } = props;
   const evalOptions = {
-    evalListItem: true,
     scopeObject: {
       [LIST_ITEM_EXP]: item,
     },
   };
+
   let value = item[column.key];
   let buttonConfig = column.buttonConfig;
+  const evaledColumn = services.stateManager.deepEval(
+    rawColumns[index],
+    evalOptions
+  ) as Static<typeof ColumnSpec>;
 
-  if (column.displayValue) {
-    const result = services.stateManager.deepEval(column.displayValue, evalOptions);
-
-    value = result instanceof ExpressionError ? '' : result;
+  if (evaledColumn.displayValue) {
+    value = evaledColumn.displayValue;
   }
 
-  if (column.buttonConfig) {
-    buttonConfig = services.stateManager.deepEval(column.buttonConfig, evalOptions);
+  if (evaledColumn.buttonConfig) {
+    buttonConfig = evaledColumn.buttonConfig;
   }
 
   let content = value;
@@ -82,16 +85,13 @@ export const TableTd: React.FC<{
     case 'button':
       const onClick = () => {
         onClickItem();
-        const evaledColumns = services.stateManager.deepEval(
-          rawColumns,
-          evalOptions
-        ) as Static<typeof ColumnsPropertySpec>;
-
-        evaledColumns[index].buttonConfig.handlers.forEach(evaledHandler => {
+        evaledColumn.buttonConfig.handlers.forEach(evaledHandler => {
           services.apiService.send('uiMethod', {
             componentId: evaledHandler.componentId,
             name: evaledHandler.method.name,
             parameters: evaledHandler.method.parameters,
+            triggerId: component.id,
+            eventType: 'onClick',
           });
         });
       };
@@ -114,10 +114,10 @@ export const TableTd: React.FC<{
       );
       break;
     case 'component':
-      const childrenSchema = app.spec.components.filter(c => {
+      const childrenSchema = allComponents.filter(c => {
         return c.traits.find(
           t =>
-            t.type === 'core/v1/slot' &&
+            (t.type === 'core/v1/slot' || t.type === 'core/v2/slot') &&
             (t.properties.container as any).id === component.id
         );
       });
@@ -147,10 +147,10 @@ export const TableTd: React.FC<{
           key={_childrenSchema.id}
           component={_childrenSchema}
           app={app}
+          allComponents={allComponents}
           services={services}
           childrenMap={{}}
           isInModule
-          evalListItem
           slotContext={{
             renderSet: new Set(),
             slotKey: formatSlotKey(_childrenSchema.id, 'td', `td_${index}`),

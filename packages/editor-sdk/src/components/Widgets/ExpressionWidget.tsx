@@ -1,24 +1,14 @@
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
-import {
-  toNumber,
-  isString,
-  isNumber,
-  isBoolean,
-  isFunction,
-  isObject,
-  isUndefined,
-  isNull,
-  debounce,
-} from 'lodash';
+import { toNumber, debounce } from 'lodash';
 import { Type, Static } from '@sinclair/typebox';
 import { WidgetProps } from '../../types/widget';
 import { implementWidget } from '../../utils/widget';
 import { ExpressionEditor, ExpressionEditorHandle } from '../Form';
 import { isExpression } from '../../utils/validator';
-import { getTypeString } from '../../utils/type';
-import Ajv, { EnumParams } from 'ajv';
+import { getType, getTypeString, Types } from '../../utils/type';
+import { ValidateFunction } from 'ajv';
 import { ExpressionError } from '@sunmao-ui/runtime';
-import { CORE_VERSION, CoreWidgetName } from '@sunmao-ui/shared';
+import { CORE_VERSION, CoreWidgetName, initAjv } from '@sunmao-ui/shared';
 
 // FIXME: move into a new package and share with runtime?
 export function isNumeric(x: string | number) {
@@ -26,30 +16,6 @@ export function isNumeric(x: string | number) {
 }
 
 // highly inspired by appsmith
-export enum Types {
-  STRING = 'STRING',
-  NUMBER = 'NUMBER',
-  BOOLEAN = 'BOOLEAN',
-  OBJECT = 'OBJECT',
-  ARRAY = 'ARRAY',
-  FUNCTION = 'FUNCTION',
-  UNDEFINED = 'UNDEFINED',
-  NULL = 'NULL',
-  UNKNOWN = 'UNKNOWN',
-}
-
-export const getType = (value: unknown) => {
-  if (isString(value)) return Types.STRING;
-  if (isNumber(value)) return Types.NUMBER;
-  if (isBoolean(value)) return Types.BOOLEAN;
-  if (Array.isArray(value)) return Types.ARRAY;
-  if (isFunction(value)) return Types.FUNCTION;
-  if (isObject(value)) return Types.OBJECT;
-  if (isUndefined(value)) return Types.UNDEFINED;
-  if (isNull(value)) return Types.NULL;
-  return Types.UNKNOWN;
-};
-
 function generateTypeDef(
   obj: any
 ): string | Record<string, string | Record<string, unknown>> {
@@ -143,9 +109,8 @@ export const ExpressionWidgetOptionsSpec = Type.Object({
   ),
 });
 
-const ajv = new Ajv();
-
 type ExpressionWidgetType = `${typeof CORE_VERSION}/${CoreWidgetName.Expression}`;
+type Container = { id: string; slot: string };
 declare module '../../types/widget' {
   interface WidgetOptionsMap {
     'core/v1/expression': Static<typeof ExpressionWidgetOptionsSpec>;
@@ -153,7 +118,7 @@ declare module '../../types/widget' {
 }
 
 export const ExpressionWidget: React.FC<WidgetProps<ExpressionWidgetType>> = props => {
-  const { value, services, spec, onChange } = props;
+  const { value, services, spec, component, onChange } = props;
   const { widgetOptions } = spec;
   const { stateManager } = services;
   const code = useMemo(() => getCode(value), [value]);
@@ -164,23 +129,53 @@ export const ExpressionWidget: React.FC<WidgetProps<ExpressionWidgetType>> = pro
   const [evaledValue, setEvaledValue] = useState<any>({ value: null });
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<ExpressionEditorHandle>(null);
-  const validate = useMemo(() => ajv.compile(spec), [spec]);
+  const validateFuncRef = useRef<ValidateFunction | null>(null);
+  const slotTrait = useMemo(() => {
+    if (component.traits) {
+      return component.traits.find(trait =>
+        ['core/v1/slot', 'core/v2/slot'].includes(trait.type)
+      );
+    }
+    return undefined;
+  }, [component]);
+  const $slot = useMemo(
+    () =>
+      slotTrait
+        ? Object.entries(services.stateManager.slotStore).find(([key]) => {
+            const { id, slot } = slotTrait.properties.container as Container;
+
+            return key.includes(`${id}_${slot}`);
+          })?.[1]
+        : null,
+    [services.stateManager.slotStore, slotTrait]
+  );
+
   const evalCode = useCallback(
-    (code: string) => {
+    async (code: string) => {
       try {
         const value = getParsedValue(code, type);
         const result = isExpression(value)
-          ? services.stateManager.deepEval(value)
+          ? services.stateManager.deepEval(value, {
+              scopeObject: { $slot },
+              overrideSlot: true,
+            })
           : value;
 
         if (result instanceof ExpressionError) {
           throw result;
         }
 
-        validate(result);
+        if (!validateFuncRef.current) {
+          const { default: Ajv } = await import('ajv');
 
-        if (validate.errors?.length) {
-          const err = validate.errors[0];
+          const ajv = initAjv(new Ajv());
+          validateFuncRef.current = ajv.compile(spec);
+        }
+
+        validateFuncRef.current(result);
+
+        if (validateFuncRef.current.errors?.length) {
+          const err = validateFuncRef.current.errors[0];
 
           if (err.keyword === 'type') {
             throw new TypeError(
@@ -190,9 +185,7 @@ export const ExpressionWidget: React.FC<WidgetProps<ExpressionWidgetType>> = pro
             );
           } else if (err.keyword === 'enum') {
             throw new TypeError(
-              `${err.message}: ${JSON.stringify(
-                (err.params as EnumParams).allowedValues
-              )}`
+              `${err.message}: ${JSON.stringify(err.params.allowedValues)}`
             );
           } else {
             throw new TypeError(err.message);
@@ -207,7 +200,7 @@ export const ExpressionWidget: React.FC<WidgetProps<ExpressionWidgetType>> = pro
         setError(String(err));
       }
     },
-    [services, type, validate, spec]
+    [services, type, spec]
   );
   const onCodeChange = useMemo(() => debounce(evalCode, 300), [evalCode]);
   const onFocus = useCallback(() => {
@@ -215,8 +208,8 @@ export const ExpressionWidget: React.FC<WidgetProps<ExpressionWidgetType>> = pro
   }, [code, evalCode]);
 
   useEffect(() => {
-    setDefs([customTreeTypeDefCreator(stateManager.store)]);
-  }, [stateManager]);
+    setDefs([customTreeTypeDefCreator({ ...stateManager.store, $slot })]);
+  }, [stateManager, $slot]);
   useEffect(() => {
     editorRef.current?.setCode(code);
   }, [code]);
